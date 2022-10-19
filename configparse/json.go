@@ -4,19 +4,18 @@ import (
 	"github.com/benchttp/engine/runner"
 )
 
-// JSON reads input bytes as JSON and unmarshals it into a runner.ConfigGlobal.
-func JSON(in []byte) (runner.Config, error) {
+// JSON reads input bytes as JSON and unmarshals it into a runner.Runner.
+func JSON(in []byte) (runner.Runner, error) {
 	parser := JSONParser{}
-
-	var repr Representation
+	repr := Representation{}
 	if err := parser.Parse(in, &repr); err != nil {
-		return runner.Config{}, err
+		return runner.Runner{}, err
 	}
 
-	cfg, err := ParseRepresentation(repr)
-	if err != nil {
-		return runner.Config{}, err
+	cfg := runner.DefaultRunner()
+	if err := repr.ParseInto(&cfg); err != nil {
+		return runner.Runner{}, err
 	}
 
-	return cfg.Override(runner.DefaultConfig()), nil
+	return cfg, nil
 }

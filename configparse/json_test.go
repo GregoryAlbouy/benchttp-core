@@ -3,7 +3,6 @@ package configparse_test
 import (
 	"encoding/json"
 	"errors"
-	"net/url"
 	"testing"
 
 	"github.com/benchttp/engine/configparse"
@@ -18,18 +17,18 @@ func TestJSON(t *testing.T) {
 	}
 
 	testcases := []struct {
-		name      string
-		input     []byte
-		expConfig runner.Config
-		expError  error
+		name          string
+		input         []byte
+		isValidRunner func(runner.Runner) bool
+		expError      error
 	}{
 		{
 			name: "returns error if input json has bad keys",
 			input: baseInput.assign(object{
 				"badkey": "marcel-patulacci",
 			}).json(),
-			expConfig: runner.Config{},
-			expError:  errors.New(`invalid field ("badkey"): does not exist`),
+			isValidRunner: func(cfg runner.Runner) bool { return true },
+			expError:      errors.New(`invalid field ("badkey"): does not exist`),
 		},
 		{
 			name: "returns error if input json has bad values",
@@ -38,33 +37,32 @@ func TestJSON(t *testing.T) {
 					"concurrency": "bad value", // want int
 				},
 			}).json(),
-			expConfig: runner.Config{},
-			expError:  errors.New(`wrong type for field runner.concurrency: want int, got string`),
+			isValidRunner: func(runner.Runner) bool { return true },
+			expError:      errors.New(`wrong type for field runner.concurrency: want int, got string`),
 		},
 		{
 			name: "unmarshals JSON config and merges it with default",
 			input: baseInput.assign(object{
 				"runner": object{"concurrency": 3},
 			}).json(),
-			expConfig: runner.Config{
-				Request: runner.RequestConfig{
-					URL: mustParseURL("https://example.com"),
-				},
-				Runner: runner.RecorderConfig{
-					Concurrency: 3,
-				},
-			}.
-				WithFields("url", "concurrency").
-				Override(runner.DefaultConfig()),
+			isValidRunner: func(r runner.Runner) bool {
+				defaultRunner := runner.DefaultRunner()
+
+				isInputValueParsed := r.Concurrency == 3
+				isMergedWithDefault := r.Request.Method == defaultRunner.Request.Method &&
+					r.GlobalTimeout == defaultRunner.GlobalTimeout
+
+				return isInputValueParsed && isMergedWithDefault
+			},
 			expError: nil,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotConfig, gotError := configparse.JSON(tc.input)
-			if !gotConfig.Equal(tc.expConfig) {
-				t.Errorf("unexpected config:\nexp %+v\ngot %+v", tc.expConfig, gotConfig)
+			gotRunner, gotError := configparse.JSON(tc.input)
+			if !tc.isValidRunner(gotRunner) {
+				t.Errorf("unexpected config:\n%+v", gotRunner)
 			}
 
 			if !sameErrors(gotError, tc.expError) {
@@ -93,14 +91,6 @@ func (o object) assign(other object) object {
 		newObject[k] = v
 	}
 	return newObject
-}
-
-func mustParseURL(rawURL string) *url.URL {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		panic(err)
-	}
-	return u
 }
 
 func sameErrors(a, b error) bool {
